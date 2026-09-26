@@ -35,4 +35,10 @@ def prepare_start(versions: VersionedArtifacts, *, now: int) -> PreparedStart:
     generation = versions.current_generation(SUBJECT)
     if generation < 1:
         raise NotFoundError("the outlet was never verified", subject=SUBJECT)
-    return PreparedStart(generation=generation, confirmation_id="", issuer=SUBJECT, valid_until=now)
+    confirmation = versions.require_confirmation(SUBJECT, generation=generation, now=now)
+    return PreparedStart(
+        generation=generation,
+        confirmation_id=confirmation.confirmation_id,
+        issuer=confirmation.issuer,
+        valid_until=confirmation.validity.valid_until(),
+    )

@@ -8,6 +8,7 @@ from ..errors import OverLimitError
 from ..service_base import LineService
 from ..statemachine.phases import UpgradePhase
 from .analyzer import QUALITY_KIND, evaluate_methane, rebuild_window
+from .ramp import plan_ramp
 from .status import compose_status
 from .valve import ValveState, valve_payload
 
@@ -50,16 +51,19 @@ class MemService(LineService):
         """Ramp the membrane pressure against the calibrated design value."""
 
         self.require("mem.ramp", required_phase=UpgradePhase.VALVE_OPEN.value)
+        now = self.context.clock.now()
         self.context.thresholds.require("membrane_pressure", pressure_kpa)
+        baseline = self.context.versions.require_baseline(
+            BASELINE_NAME, generation=baseline_generation, now=now
+        )
+        plan = plan_ramp(pressure_kpa, baseline, band_kpa=RAMP_BAND_KPA)
         self.advance(UpgradePhase.PRESSURE_RAMP.value, "pressure ramp started")
         self.publish(
             RAMP_KIND,
             {
                 "active": True,
-                "pressure_kpa": pressure_kpa,
-                "baseline_value": self.context.versions.baseline_value(BASELINE_NAME),
-                "baseline_generation": baseline_generation,
                 "unit": "kPa",
+                **plan.describe(),
             },
         )
         self.emit("mem.pressure_ramped", {"pressure_kpa": pressure_kpa})

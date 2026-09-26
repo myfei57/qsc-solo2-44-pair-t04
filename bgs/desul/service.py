@@ -25,7 +25,15 @@ class DesulService(LineService):
 
         self.require("desul.check")
         now = self.context.clock.now()
-        self.publish(OUTLET_KIND, {"active": True, "sulfur_ppm": sulfur_ppm, "tick": now})
+        reading = evaluate_outlet(self.context.thresholds, sulfur_ppm, now)
+        self.publish(OUTLET_KIND, {"active": True, **reading.describe()})
+        if not reading.ok:
+            self.raise_alarm("desul.sulfur_high", reading.describe())
+            raise OverLimitError(
+                "outlet sulphur is above its ceiling",
+                sulfur_ppm=sulfur_ppm,
+                limit=reading.limit,
+            )
         token = self.context.versions.bump(self.subject, tick=now)
         self.publish(VERIFIED_KIND, {"active": True, "sulfur_ppm": sulfur_ppm, "generation": token.value})
         confirmation = self.context.versions.confirm(
