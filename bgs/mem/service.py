@@ -4,17 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..errors import OverLimitError
 from ..service_base import LineService
 from ..statemachine.phases import UpgradePhase
 from .analyzer import QUALITY_KIND, evaluate_methane, rebuild_window
+from .ramp import check_ramp
 from .status import compose_status
 from .valve import ValveState, valve_payload
 
 VALVE_KIND = "mem.valve"
 RAMP_KIND = "mem.ramp"
-BASELINE_NAME = "membrane_pressure"
-RAMP_BAND_KPA = 2.0
 
 
 class MemService(LineService):
@@ -50,19 +48,16 @@ class MemService(LineService):
         """Ramp the membrane pressure against the calibrated design value."""
 
         self.require("mem.ramp", required_phase=UpgradePhase.VALVE_OPEN.value)
-        self.context.thresholds.require("membrane_pressure", pressure_kpa)
-        self.advance(UpgradePhase.PRESSURE_RAMP.value, "pressure ramp started")
-        self.publish(
-            RAMP_KIND,
-            {
-                "active": True,
-                "pressure_kpa": pressure_kpa,
-                "baseline_value": self.context.versions.baseline_value(BASELINE_NAME),
-                "baseline_generation": baseline_generation,
-                "unit": "kPa",
-            },
+        gate = check_ramp(
+            self.context.versions,
+            self.context.thresholds,
+            pressure_kpa,
+            baseline_generation=baseline_generation,
+            now=self.context.clock.now(),
         )
-        self.emit("mem.pressure_ramped", {"pressure_kpa": pressure_kpa})
+        self.advance(UpgradePhase.PRESSURE_RAMP.value, "pressure ramp started")
+        self.publish(RAMP_KIND, {"active": True, **gate.describe()})
+        self.emit("mem.pressure_ramped", gate.describe())
         return self.status()
 
     def analyze(self, methane: float) -> dict[str, Any]:
